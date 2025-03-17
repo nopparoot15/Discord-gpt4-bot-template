@@ -5,10 +5,12 @@ import asyncpg
 import asyncio
 import discord
 from discord.ext import commands
+from discord import app_commands
 import openai
 import time
 import httpx
 import random
+from datetime import datetime, timedelta
 
 # ตั้งค่า logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s:%(message)s', handlers=[
@@ -31,6 +33,8 @@ LOG_CHANNEL_ID = 1350924995030679644  # ไอดีของห้อง logs
 
 intents = discord.Intents.default()
 intents.message_content = True
+intents.messages = True
+intents.guilds = True
 bot = commands.Bot(command_prefix='$', intents=intents)
 
 # ใช้ OpenAI client เวอร์ชันใหม่
@@ -81,6 +85,10 @@ async def on_ready():
     try:
         bot.pool = await asyncpg.create_pool(user=PG_USER, password=PG_PW, host=PG_HOST, port=PG_PORT, database=PG_DB, max_size=10, max_inactive_connection_lifetime=15)
         await create_table()
+        
+        # Sync slash commands
+        await bot.tree.sync()
+        
         logger.info(f'{bot.user} เชื่อมต่อสำเร็จ')
     except Exception as e:
         logger.error(f'เกิดข้อผิดพลาดใน on_ready: {e}')
@@ -191,4 +199,150 @@ async def chatcontext_append(guild, message):
     except Exception as e:
         logger.error(f'chatcontext_append: {e}')
 
-bot.run(TOKEN)
+# คำสั่งช่วยเหลือ
+@bot.command(name='help')
+async def help_command(ctx):
+    help_text = """
+    รายการคำสั่งที่ใช้งานได้:
+    $help → แสดงรายการคำสั่งที่ใช้งานได้
+    $ask <คำถาม> → ถามคำถามกับ AI โดยไม่ต้องใช้บริบทการสนทนา
+    $clear → ล้างบริบทการสนทนา
+    $setrole <system prompt> → กำหนดบทบาทของ AI (เช่น ให้ AI เป็นครูสอนพิเศษ, นักวิเคราะห์ ฯลฯ)
+    $reminder <เวลา> <ข้อความ> → ตั้งเวลาแจ้งเตือนใน Discord
+    $search <คำค้นหา> → ให้บอทค้นหาข้อมูลจากอินเทอร์เน็ต
+    """
+    await ctx.send(help_text)
+
+# คำสั่งถามคำถาม
+@bot.command(name='ask')
+async def ask_command(ctx, *, question):
+    try:
+        response = await get_openai_response([{"role": "user", "content": question}])
+        if response:
+            await ctx.send(response.choices[0].message.content.strip())
+        else:
+            await ctx.send("ขออภัย โควต้าการใช้งานของระบบหมด กรุณาตรวจสอบ OpenAI API")
+    except Exception as e:
+        logger.error(f'เกิดข้อผิดพลาดใน ask_command: {e}')
+        await ctx.send("เกิดข้อผิดพลาดในการประมวลผลคำถามของคุณ")
+
+# คำสั่งล้างบริบทการสนทนา
+@bot.command(name='clear')
+async def clear_command(ctx):
+    try:
+        async with bot.pool.acquire() as con:
+            await con.execute("UPDATE context SET chatcontext = ARRAY[]::TEXT[] WHERE id = $1", ctx.guild.id)
+        await ctx.send("ล้างบริบทการสนทนาเรียบร้อยแล้ว")
+    except Exception as e:
+        logger.error(f'เกิดข้อผิดพลาดใน clear_command: {e}')
+        await ctx.send("เกิดข้อผิดพลาดในการล้างบริบทการสนทนา")
+
+# คำสั่งกำหนดบทบาทของ AI
+@bot.command(name='setrole')
+async def setrole_command(ctx, *, system_prompt):
+    # อัปเดต system prompt ในบริบทการสนทนา
+    try:
+        messages = [{"role": "system", "content": system_prompt}]
+        response = await get_openai_response(messages)
+        if response:
+            await ctx.send("กำหนดบทบาทของ AI เรียบร้อยแล้ว")
+        else:
+            await ctx.send("ขออภัย โควต้าการใช้งานของระบบหมด กรุณาตรวจสอบ OpenAI API")
+    except Exception as e:
+        logger.error(f'เกิดข้อผิดพลาดใน setrole_command: {e}')
+        await ctx.send("เกิดข้อผิดพลาดในการกำหนดบทบาทของ AI")
+
+# คำสั่งตั้งเวลาแจ้งเตือน
+@bot.command(name='reminder')
+async def reminder_command(ctx, time_str, *, message):
+    try:
+        reminder_time = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+        current_time = datetime.now()
+        delay = (reminder_time - current_time).total_seconds()
+
+        if delay <= 0:
+            await ctx.send("ไม่สามารถตั้งเวลาแจ้งเตือนในอดีตได้")
+            return
+
+        await ctx.send(f"ตั้งเวลาแจ้งเตือนเรียบร้อยแล้ว จะมีการแจ้งเตือนในอีก {delay} วินาที")
+
+        await asyncio.sleep(delay)
+        await ctx.send(f"ถึงเวลาแจ้งเตือน: {message}")
+    except ValueError:
+        await ctx.send("รูปแบบเวลาที่ไม่ถูกต้อง กรุณาใช้รูปแบบเวลา: YYYY-MM-DD HH:MM:SS")
+    except Exception as e:
+        logger.error(f'เกิดข้อผิดพลาดใน reminder_command: {e}')
+        await ctx.send("เกิดข้อผิดพลาดในการตั้งเวลาแจ้งเตือน")
+
+# คำสั่งค้นหาข้อมูลจากอินเทอร์เน็ต
+@bot.command(name='search')
+async def search_command(ctx, *, query):
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(f"https://api.bing.microsoft.com/v7.0/search?q={query}", headers={"Ocp-Apim-Subscription-Key": os.getenv('BING_API_KEY')})
+            response.raise_for_status()
+            results = response.json()
+            if 'webPages' in results:
+                search_results = "\n".join([f"{web_page['name']}: {web_page['url']}" for web_page in results['webPages']['value'][:5]])
+                await ctx.send(f"ผลการค้นหาจากอินเทอร์เน็ต:\n{search_results}")
+            else:
+                await ctx.send("ไม่พบผลลัพธ์การค้นหา")
+        except httpx.HTTPStatusError as e:
+            logger.error(f'เกิดข้อผิดพลาดใน search_command: {e}')
+            await ctx.send("เกิดข้อผิดพลาดในการค้นหาข้อมูล")
+
+# Slash command for help
+@bot.tree.command(name='help', description='แสดงรายการคำสั่งที่ใช้งานได้')
+async def slash_help_command(interaction: discord.Interaction):
+    help_text = """
+    รายการคำสั่งที่ใช้งานได้:
+    $help → แสดงรายการคำสั่งที่ใช้งานได้
+    $ask <คำถาม> → ถามคำถามกับ AI โดยไม่ต้องใช้บริบทการสนทนา
+    $clear → ล้างบริบทการสนทนา
+    $setrole <system prompt> → กำหนดบทบาทของ AI (เช่น ให้ AI เป็นครูสอนพิเศษ, นักวิเคราะห์ ฯลฯ)
+    $reminder <เวลา> <ข้อความ> → ตั้งเวลาแจ้งเตือนใน Discord
+    $search <คำค้นหา> → ให้บอทค้นหาข้อมูลจากอินเทอร์เน็ต
+    """
+    await interaction.response.send_message(help_text)
+
+# Slash command for asking questions
+@bot.tree.command(name='ask', description='ถามคำถามกับ AI โดยไม่ต้องใช้บริบทการสนทนา')
+async def slash_ask_command(interaction: discord.Interaction, question: str):
+    try:
+        response = await get_openai_response([{"role": "user", "content": question}])
+        if response:
+            await interaction.response.send_message(response.choices[0].message.content.strip())
+        else:
+            await interaction.response.send_message("ขออภัย โควต้าการใช้งานของระบบหมด กรุณาตรวจสอบ OpenAI API")
+    except Exception as e:
+        logger.error(f'เกิดข้อผิดพลาดใน slash_ask_command: {e}')
+        await interaction.response.send_message("เกิดข้อผิดพลาดในการประมวลผลคำถามของคุณ")
+
+# Slash command for clearing chat context
+@bot.tree.command(name='clear', description='ล้างบริบทการสนทนา')
+async def slash_clear_command(interaction: discord.Interaction):
+    try:
+        async with bot.pool.acquire() as con:
+            await con.execute("UPDATE context SET chatcontext = ARRAY[]::TEXT[] WHERE id = $1", interaction.guild.id)
+        await interaction.response.send_message("ล้างบริบทการสนทนาเรียบร้อยแล้ว")
+    except Exception as e:
+        logger.error(f'เกิดข้อผิดพลาดใน slash_clear_command: {e}')
+        await interaction.response.send_message("เกิดข้อผิดพลาดในการล้างบริบทการสนทนา")
+
+# Slash command for setting role of AI
+@bot.tree.command(name='setrole', description='กำหนดบทบาทของ AI')
+async def slash_setrole_command(interaction: discord.Interaction, system_prompt: str):
+    # อัปเดต system prompt ในบริบทการสนทนา
+    try:
+        messages = [{"role": "system", "content": system_prompt}]
+        response = await get_openai_response(messages)
+        if response:
+            await interaction.response.send_message("กำหนดบทบาทของ AI เรียบร้อยแล้ว")
+        else:
+            await interaction.response.send_message("ขออภัย โควต้าการใช้งานของระบบหมด กรุณาตรวจสอบ OpenAI API")
+    except Exception as e:
+        logger.error(f'เกิดข้อผิดพลาดใน slash_setrole_command: {e}')
+        await interaction.response.send_message("เกิดข้อผิดพลาดในการกำหนดบทบาทของ AI")
+
+# Slash command for setting reminders
+@bot.tree.command(name='
