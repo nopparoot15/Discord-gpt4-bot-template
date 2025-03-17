@@ -13,6 +13,12 @@ import random
 from googletrans import Translator  # ใช้ Google Translate API
 import wikipediaapi  # ใช้ Wikipedia API
 
+# Specify a more descriptive user agent
+user_agent = "my-app-name/1.0 (https://example.com/contact)"
+wikipedia = wikipediaapi.Wikipedia('th', user_agent=user_agent)
+
+# Your code continues here
+
 # ตั้งค่า logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s:%(message)s', handlers=[
     logging.FileHandler("bot.log"),
