@@ -43,7 +43,7 @@ bot = commands.Bot(command_prefix='$', intents=intents)
 translator = Translator()
 
 # ใช้ OpenAI client เวอร์ชันใหม่
-openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
+openai_client = openai.AsyncClient(api_key=OPENAI_API_KEY)
 
 # --------- SLASH COMMANDS ---------
 @bot.tree.command(name="help", description="แสดงรายการคำสั่งที่ใช้งานได้")
