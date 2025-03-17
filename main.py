@@ -34,8 +34,7 @@ LOG_CHANNEL_ID = 1350924995030679644  # ไอดีของห้อง logs
 
 # ตั้งค่า Wikipedia API พร้อม User-Agent
 user_agent = "my-app-name/1.0 (https://example.com/contact)"
-config = wikipediaapi.Config(user_agent=user_agent)
-wikipedia = wikipediaapi.Wikipedia('th', config=config)
+wikipedia = wikipediaapi.Wikipedia("th", headers={"User-Agent": user_agent})
 
 # ตั้งค่า Discord Bot
 intents = discord.Intents.default()
