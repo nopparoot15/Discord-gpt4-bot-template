@@ -1,6 +1,4 @@
-discord.py
 asyncpg
+discord.py
 openai
 httpx
-googletrans==4.0.0-rc1
-wikipedia-api
