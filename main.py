@@ -46,7 +46,7 @@ translator = Translator()
 openai.api_key = OPENAI_API_KEY
 
 # --------- SLASH COMMANDS ---------
-@bot.tree.command(name="help", description="แสดงรายการคำสั่งที่ใช้งานได้")
+@bot.tree.command(name="commands", description="แสดงรายการคำสั่งที่ใช้งานได้")
 async def slash_help(interaction: discord.Interaction):
     help_text = """
     **คำสั่งที่ใช้งานได้:**
@@ -60,8 +60,8 @@ async def slash_help(interaction: discord.Interaction):
     await interaction.response.send_message(help_text, ephemeral=True)
 
 # --------- PREFIX COMMANDS ---------
-@bot.command()
-async def help(ctx):
+@bot.command(name="commands")
+async def commands_list(ctx):
     await ctx.send("ใช้ `/help` เพื่อดูคำสั่งที่ใช้งานได้")
 
 @bot.command()
