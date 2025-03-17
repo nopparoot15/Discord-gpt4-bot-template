@@ -13,12 +13,6 @@ import random
 from googletrans import Translator  # ใช้ Google Translate API
 import wikipediaapi  # ใช้ Wikipedia API
 
-# Specify a more descriptive user agent
-user_agent = "my-app-name/1.0 (https://example.com/contact)"
-wikipedia = wikipediaapi.Wikipedia('th', user_agent=user_agent)
-
-# Your code continues here
-
 # ตั้งค่า logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s:%(message)s', handlers=[
     logging.FileHandler("bot.log"),
@@ -38,11 +32,16 @@ PG_DB = os.getenv('PGPDATABASE')
 CHANNEL_ID = 1350812185001066538  # ไอดีของห้องที่ต้องการให้บอทตอบกลับ
 LOG_CHANNEL_ID = 1350924995030679644  # ไอดีของห้อง logs
 
+# ตั้งค่า Wikipedia API พร้อม User-Agent
+user_agent = "my-app-name/1.0 (https://example.com/contact)"
+config = wikipediaapi.Config(user_agent=user_agent)
+wikipedia = wikipediaapi.Wikipedia('th', config=config)
+
+# ตั้งค่า Discord Bot
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='$', intents=intents)
 translator = Translator()
-wikipedia = wikipediaapi.Wikipedia('en')
 
 # ใช้ OpenAI client เวอร์ชันใหม่
 openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
