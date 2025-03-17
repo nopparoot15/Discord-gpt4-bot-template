@@ -345,4 +345,26 @@ async def slash_setrole_command(interaction: discord.Interaction, system_prompt:
         await interaction.response.send_message("เกิดข้อผิดพลาดในการกำหนดบทบาทของ AI")
 
 # Slash command for setting reminders
-@bot.tree.command(name='
+@bot.tree.command(name='reminder', description='ตั้งเวลาแจ้งเตือนใน Discord')
+async def slash_reminder_command(interaction: discord.Interaction, time_str: str, message: str):
+    try:
+        reminder_time = datetime.strptime(time_str, "%Y-%m-%d %H:%M:%S")
+        current_time = datetime.now()
+        delay = (reminder_time - current_time).total_seconds()
+
+        if delay <= 0:
+            await interaction.response.send_message("ไม่สามารถตั้งเวลาแจ้งเตือนในอดีตได้")
+            return
+
+        await interaction.response.send_message(f"ตั้งเวลาแจ้งเตือนเรียบร้อยแล้ว จะมีการแจ้งเตือนในอีก {delay} วินาที")
+
+        await asyncio.sleep(delay)
+        await interaction.followup.send(f"ถึงเวลาแจ้งเตือน: {message}")
+    except ValueError:
+        await interaction.response.send_message("รูปแบบเวลาที่ไม่ถูกต้อง กรุณาใช้รูปแบบเวลา: YYYY-MM-DD HH:MM:SS")
+    except Exception as e:
+        logger.error(f'เกิดข้อผิดพลาดใน slash_reminder_command: {e}')
+        await interaction.response.send_message("เกิดข้อผิดพลาดในการตั้งเวลาแจ้งเตือน")
+
+# รันบอท
+bot.run(TOKEN)
