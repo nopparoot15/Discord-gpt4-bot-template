@@ -32,27 +32,24 @@ GOOGLE_CSE_ID = os.getenv('GOOGLE_CSE_ID')
 CHANNEL_ID = 1350812185001066538  # ไอดีของห้องที่ต้องการให้บอทตอบกลับ
 LOG_CHANNEL_ID = 1350924995030679644  # ไอดีของห้อง logs
 
-# ตั้งค่า OpenAI
-openai.api_key = OPENAI_API_KEY
+# ตั้งค่า OpenAI client
+client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 intents = discord.Intents.default()
-intents.message_content = True
+intents.message_content = True  # ต้องเปิดใช้งาน
 bot = commands.Bot(command_prefix='$', intents=intents)
-
-# ใช้ OpenAI client เวอร์ชันใหม่
-openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 async def check_openai_quota_and_handle_errors():
     """ ตรวจสอบโควต้าการใช้งาน OpenAI API และจัดการกับข้อผิดพลาด """
     try:
-        response = openai_client.models.list()
+        response = client.models.list()
         logger.info("OpenAI API พร้อมใช้งาน")
         return True
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 429:
+    except openai.error.OpenAIError as e:
+        if isinstance(e, openai.error.RateLimitError):
             logger.error("โควต้าของ OpenAI หมดแล้ว กรุณาตรวจสอบแผนการใช้งานของคุณ")
             await send_message_to_channel(LOG_CHANNEL_ID, "ขออภัย โควต้าการใช้งานของระบบหมด กรุณาตรวจสอบ OpenAI API")
-        elif e.response.status_code == 403:
+        elif isinstance(e, openai.error.AuthenticationError):
             logger.error("API Key ไม่มีสิทธิ์เข้าถึง กรุณาตรวจสอบคีย์")
             await send_message_to_channel(LOG_CHANNEL_ID, "ขออภัย API Key ไม่มีสิทธิ์เข้าถึง กรุณาตรวจสอบคีย์")
         else:
@@ -75,7 +72,8 @@ async def create_table():
             await con.execute("""
                 CREATE TABLE IF NOT EXISTS context (
                     id BIGINT PRIMARY KEY,
-                    chatcontext TEXT[] DEFAULT ARRAY[]::TEXT[]
+                    chatcontext TEXT[] DEFAULT ARRAY[]::TEXT[],
+                    search_results JSONB DEFAULT '[]'
                 )
             """)
             logger.info("ตรวจสอบและสร้างตาราง context แล้ว")
@@ -99,15 +97,15 @@ async def get_openai_response(messages, max_retries=3, delay=5):
     
     for attempt in range(max_retries):
         try:
-            response = openai_client.chat.completions.create(
-                model="gpt-4o-mini",
+            response = await client.chat.completions.create(
+                model="gpt-4",
                 messages=messages,
                 max_tokens=2000,
                 temperature=1
             )
             return response
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429:
+        except openai.error.OpenAIError as e:
+            if isinstance(e, openai.error.RateLimitError):
                 wait_time = delay * (attempt + 1)
                 logger.warning(f'เจอข้อผิดพลาด 429 Too Many Requests, กำลังรอ {wait_time} วินาทีแล้วลองใหม่...')
                 await asyncio.sleep(wait_time)
@@ -140,6 +138,19 @@ async def chatcontext_append(guild, message):
     except Exception as e:
         logger.error(f'chatcontext_append: {e}')
 
+async def save_search_results(guild, results):
+    if bot.pool is None or not hasattr(bot, 'pool'):
+        return
+    try:
+        async with bot.pool.acquire() as con:
+            await con.execute("""
+                UPDATE context
+                SET search_results = array_append(COALESCE(search_results, '[]'::JSONB), $2::JSONB)
+                WHERE id = $1
+            """, guild, json.dumps(results))
+    except Exception as e:
+        logger.error(f'save_search_results: {e}')
+
 # ฟังก์ชันค้นหาข้อมูลจาก Google Search
 def search_google(query):
     url = f"https://www.googleapis.com/customsearch/v1?q={query}&key={GOOGLE_API_KEY}&cx={GOOGLE_CSE_ID}"
@@ -153,19 +164,19 @@ def search_google(query):
                 snippet = result.get("snippet", "ไม่มีข้อมูลสรุป")
                 link = result.get("link", "#")
                 summaries.append(f"🔹 **{title}**\n{snippet}\n🔗 {link}")
-            return "\n\n".join(summaries)
-    return "ไม่พบข้อมูลจาก Google"
+            return summaries
+    return []
 
 # ฟังก์ชันให้ GPT สรุปข้อมูล
 def summarize_with_gpt(text):
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4",
         messages=[
             {"role": "system", "content": "คุณเป็น AI ที่สามารถสรุปข้อมูลเป็นภาษาไทยได้"},
             {"role": "user", "content": f"ช่วยสรุปข้อมูลต่อไปนี้ให้สั้นและเข้าใจง่าย:\n{text}"}
         ]
     )
-    return response["choices"][0]["message"]["content"]
+    return response.choices[0].message.content
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -177,18 +188,19 @@ async def on_message(message: discord.Message):
         chatcontext = await get_guild_x(message.guild.id, "chatcontext") or []
         
         # คำสั่งค้นหาข้อมูลจาก Google
-        if text.startswith("ค้นหา:"):
-            query = text.replace("ค้นหา:", "").strip()
+        if text.startswith("!search "):
+            query = text.replace("!search ", "").strip()
             search_results = search_google(query)
 
-            if search_results == "ไม่พบข้อมูลจาก Google":
+            if not search_results:
                 await message.channel.send("❌ ไม่พบข้อมูลที่ต้องการ")
             else:
-                await message.channel.send(f"🔍 **ผลการค้นหาจาก Google:**\n{search_results}")
+                await message.channel.send(f"🔍 **ผลการค้นหาจาก Google:**\n" + "\n\n".join(search_results))
 
                 # ให้ GPT-4 สรุปข้อมูล
-                summary = summarize_with_gpt(search_results)
+                summary = summarize_with_gpt("\n".join(search_results))
                 await message.channel.send(f"📝 **สรุปข้อมูลโดย AI:**\n{summary}")
+                await save_search_results(message.guild.id, search_results)
         
         # ถาม AI ตามปกติ
         else:
