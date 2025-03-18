@@ -219,7 +219,19 @@ async def on_message(message: discord.Message):
             messages.extend({"role": "user" if 'bot' not in msg.lower() else "assistant", "content": msg.split(":", 1)[1]} for msg in chatcontext[-6:])
             messages.append({"role": "user", "content": text})
             
-            response = await get_openai_response(messages)
+            response = None
+            try:
+                response = await get_openai_response(messages)
+            except HTTPStatusError as e:
+                if e.response.status_code == 403:
+                    await message.reply("เกิดข้อผิดพลาด: API Key ของคุณไม่มีสิทธิ์เข้าถึง OpenAI API กรุณาตรวจสอบ API Key ของคุณ")
+                    logger.error(f'HTTPStatusError: {e}')
+                else:
+                    await message.reply("เกิดข้อผิดพลาดในการเชื่อมต่อกับ OpenAI API")
+                    logger.error(f'Unexpected HTTPStatusError: {e}')
+            except Exception as e:
+                await message.reply("เกิดข้อผิดพลาดที่ไม่คาดคิด กรุณาลองใหม่อีกครั้ง")
+                logger.error(f'Unexpected error in on_message: {e}')
             
             if response:
                 logger.debug(f'OpenAI Response: {response}')
