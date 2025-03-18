@@ -39,20 +39,17 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='$', intents=intents)
 
-# ใช้ OpenAI client เวอร์ชันใหม่
-openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
-
 async def check_openai_quota_and_handle_errors():
     """ ตรวจสอบโควต้าการใช้งาน OpenAI API และจัดการกับข้อผิดพลาด """
     try:
-        response = openai_client.models.list()
+        response = openai.Model.list()
         logger.info("OpenAI API พร้อมใช้งาน")
         return True
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 429:
+    except openai.error.OpenAIError as e:
+        if isinstance(e, openai.error.RateLimitError):
             logger.error("โควต้าของ OpenAI หมดแล้ว กรุณาตรวจสอบแผนการใช้งานของคุณ")
             await send_message_to_channel(LOG_CHANNEL_ID, "ขออภัย โควต้าการใช้งานของระบบหมด กรุณาตรวจสอบ OpenAI API")
-        elif e.response.status_code == 403:
+        elif isinstance(e, openai.error.AuthenticationError):
             logger.error("API Key ไม่มีสิทธิ์เข้าถึง กรุณาตรวจสอบคีย์")
             await send_message_to_channel(LOG_CHANNEL_ID, "ขออภัย API Key ไม่มีสิทธิ์เข้าถึง กรุณาตรวจสอบคีย์")
         else:
@@ -100,15 +97,15 @@ async def get_openai_response(messages, max_retries=3, delay=5):
     
     for attempt in range(max_retries):
         try:
-            response = openai_client.chat.completions.create(
-                model="gpt-4o-mini",
+            response = openai.ChatCompletion.create(
+                model="gpt-4",
                 messages=messages,
                 max_tokens=2000,
                 temperature=1
             )
             return response
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429:
+        except openai.error.OpenAIError as e:
+            if isinstance(e, openai.error.RateLimitError):
                 wait_time = delay * (attempt + 1)
                 logger.warning(f'เจอข้อผิดพลาด 429 Too Many Requests, กำลังรอ {wait_time} วินาทีแล้วลองใหม่...')
                 await asyncio.sleep(wait_time)
