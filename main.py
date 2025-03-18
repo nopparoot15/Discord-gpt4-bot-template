@@ -75,7 +75,8 @@ async def create_table():
             await con.execute("""
                 CREATE TABLE IF NOT EXISTS context (
                     id BIGINT PRIMARY KEY,
-                    chatcontext TEXT[] DEFAULT ARRAY[]::TEXT[]
+                    chatcontext TEXT[] DEFAULT ARRAY[]::TEXT[],
+                    search_results JSONB DEFAULT '[]'
                 )
             """)
             logger.info("ตรวจสอบและสร้างตาราง context แล้ว")
@@ -140,6 +141,19 @@ async def chatcontext_append(guild, message):
     except Exception as e:
         logger.error(f'chatcontext_append: {e}')
 
+async def save_search_results(guild, results):
+    if bot.pool is None or not hasattr(bot, 'pool'):
+        return
+    try:
+        async with bot.pool.acquire() as con:
+            await con.execute("""
+                UPDATE context
+                SET search_results = array_append(COALESCE(search_results, '[]'::JSONB), $2::JSONB)
+                WHERE id = $1
+            """, guild, json.dumps(results))
+    except Exception as e:
+        logger.error(f'save_search_results: {e}')
+
 # ฟังก์ชันค้นหาข้อมูลจาก Google Search
 def search_google(query):
     url = f"https://www.googleapis.com/customsearch/v1?q={query}&key={GOOGLE_API_KEY}&cx={GOOGLE_CSE_ID}"
@@ -153,8 +167,8 @@ def search_google(query):
                 snippet = result.get("snippet", "ไม่มีข้อมูลสรุป")
                 link = result.get("link", "#")
                 summaries.append(f"🔹 **{title}**\n{snippet}\n🔗 {link}")
-            return "\n\n".join(summaries)
-    return "ไม่พบข้อมูลจาก Google"
+            return summaries
+    return []
 
 # ฟังก์ชันให้ GPT สรุปข้อมูล
 def summarize_with_gpt(text):
@@ -177,18 +191,19 @@ async def on_message(message: discord.Message):
         chatcontext = await get_guild_x(message.guild.id, "chatcontext") or []
         
         # คำสั่งค้นหาข้อมูลจาก Google
-        if text.startswith("ค้นหา:"):
-            query = text.replace("ค้นหา:", "").strip()
+        if text.startswith("!search "):
+            query = text.replace("!search ", "").strip()
             search_results = search_google(query)
 
-            if search_results == "ไม่พบข้อมูลจาก Google":
+            if not search_results:
                 await message.channel.send("❌ ไม่พบข้อมูลที่ต้องการ")
             else:
-                await message.channel.send(f"🔍 **ผลการค้นหาจาก Google:**\n{search_results}")
+                await message.channel.send(f"🔍 **ผลการค้นหาจาก Google:**\n" + "\n\n".join(search_results))
 
                 # ให้ GPT-4 สรุปข้อมูล
-                summary = summarize_with_gpt(search_results)
+                summary = summarize_with_gpt("\n".join(search_results))
                 await message.channel.send(f"📝 **สรุปข้อมูลโดย AI:**\n{summary}")
+                await save_search_results(message.guild.id, search_results)
         
         # ถาม AI ตามปกติ
         else:
