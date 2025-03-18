@@ -32,11 +32,11 @@ GOOGLE_CSE_ID = os.getenv('GOOGLE_CSE_ID')
 CHANNEL_ID = 1350812185001066538  # ไอดีของห้องที่ต้องการให้บอทตอบกลับ
 LOG_CHANNEL_ID = 1350924995030679644  # ไอดีของห้อง logs
 
-# ตั้งค่า OpenAI
+# ตั้งค่า OpenAI client
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 intents = discord.Intents.default()
-intents.message_content = True
+intents.message_content = True  # ต้องเปิดใช้งาน
 bot = commands.Bot(command_prefix='$', intents=intents)
 
 async def check_openai_quota_and_handle_errors():
@@ -176,7 +176,7 @@ def summarize_with_gpt(text):
             {"role": "user", "content": f"ช่วยสรุปข้อมูลต่อไปนี้ให้สั้นและเข้าใจง่าย:\n{text}"}
         ]
     )
-    return response["choices"][0]["message"]["content"]
+    return response.choices[0].message.content
 
 @bot.event
 async def on_message(message: discord.Message):
