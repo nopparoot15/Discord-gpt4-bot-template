@@ -170,7 +170,7 @@ def search_google(query):
 # ฟังก์ชันให้ GPT สรุปข้อมูล
 def summarize_with_gpt(text):
     response = client.chat.completions.create(
-        model="gpt-4",
+        model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": "คุณเป็น AI ที่สามารถสรุปข้อมูลเป็นภาษาไทยได้"},
             {"role": "user", "content": f"ช่วยสรุปข้อมูลต่อไปนี้ให้สั้นและเข้าใจง่าย:\n{text}"}
