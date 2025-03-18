@@ -33,7 +33,7 @@ CHANNEL_ID = 1350812185001066538  # ไอดีของห้องที่�
 LOG_CHANNEL_ID = 1350924995030679644  # ไอดีของห้อง logs
 
 # ตั้งค่า OpenAI
-openai.api_key = OPENAI_API_KEY
+client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -42,7 +42,7 @@ bot = commands.Bot(command_prefix='$', intents=intents)
 async def check_openai_quota_and_handle_errors():
     """ ตรวจสอบโควต้าการใช้งาน OpenAI API และจัดการกับข้อผิดพลาด """
     try:
-        response = openai.Model.list()
+        response = client.models.list()
         logger.info("OpenAI API พร้อมใช้งาน")
         return True
     except openai.error.OpenAIError as e:
@@ -97,7 +97,7 @@ async def get_openai_response(messages, max_retries=3, delay=5):
     
     for attempt in range(max_retries):
         try:
-            response = openai.ChatCompletion.create(
+            response = await client.chat.completions.create(
                 model="gpt-4",
                 messages=messages,
                 max_tokens=2000,
@@ -169,7 +169,7 @@ def search_google(query):
 
 # ฟังก์ชันให้ GPT สรุปข้อมูล
 def summarize_with_gpt(text):
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4",
         messages=[
             {"role": "system", "content": "คุณเป็น AI ที่สามารถสรุปข้อมูลเป็นภาษาไทยได้"},
