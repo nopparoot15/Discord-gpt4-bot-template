@@ -197,14 +197,14 @@ async def chatcontext_append(guild, message):
         return
     try:
         async with bot.pool.acquire() as con:
-            # ใช้ ARRAY[] แปลงเป็น TEXT[] ก่อน
+            # แปลง message ที่เป็น TEXT ให้เป็น TEXT[] ก่อน
             await con.execute("""
                 INSERT INTO context (id, chatcontext)
-                VALUES ($1, ARRAY[$2]::TEXT[])  -- แปลง message เป็น TEXT[] ก่อน
+                VALUES ($1, ARRAY[$2]::TEXT[])  -- แปลง message ที่เป็น TEXT เป็น TEXT[]
                 ON CONFLICT (id) DO UPDATE 
                 SET chatcontext = array_append(
-                    COALESCE(context.chatcontext, ARRAY[]::TEXT[]), 
-                    $2  -- ใส่ message ที่เป็น TEXT ลงไป
+                    COALESCE(context.chatcontext, ARRAY[]::TEXT[]),  -- ทำให้ context.chatcontext เป็น TEXT[] หากเป็น NULL
+                    $2  -- เพิ่ม message ที่เป็น TEXT ลงใน TEXT[]
                 )
             """, guild, message)
     except Exception as e:
