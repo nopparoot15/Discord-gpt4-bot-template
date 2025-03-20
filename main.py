@@ -22,10 +22,11 @@ logger = logging.getLogger('discord_bot')
 # ตั้งค่า API Key และ Token
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 TOKEN = os.getenv('DISCORD_TOKEN')
+DATABASE_URL = os.getenv("DATABASE_URL")
 PG_USER = os.getenv('PGUSER')
 PG_PW = os.getenv('PGPASSWORD')
 PG_HOST = os.getenv('PGHOST')
-PG_PORT = os.getenv('PGPORT')
+PG_PORT = os.getenv('PGPORT', '5432')
 PG_DB = os.getenv('PGPDATABASE')
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 GOOGLE_CSE_ID = os.getenv('GOOGLE_CSE_ID')
@@ -58,16 +59,33 @@ async def setup_redis():
 
 # เชื่อมต่อ PostgreSQL
 async def setup_postgres():
-    if not all([PG_USER, PG_PW, PG_HOST, PG_PORT, PG_DB]):
+    if DATABASE_URL:
+        logger.info(f"🔍 DATABASE_URL: {'✅ มีค่า' if DATABASE_URL else '❌ ไม่มีค่า'}")
+    else:
+        logger.info(f"🔍 PGHOST: {PG_HOST}")
+        logger.info(f"🔍 PGUSER: {PG_USER}")
+        logger.info(f"🔍 PGDATABASE: {PG_DB}")
+        logger.info(f"🔍 PGPASSWORD: {'✅ มีค่า' if PG_PW else '❌ ไม่มีค่า'}")
+        logger.info(f"🔍 PGPORT: {PG_PORT}")
+
+    if not DATABASE_URL and not all([PG_USER, PG_PW, PG_HOST, PG_DB, PG_PORT]):
         logger.error("❌ PostgreSQL environment variables ไม่ครบถ้วน")
         return
+
     try:
-        bot.pool = await asyncpg.create_pool(
-            user=PG_USER, password=PG_PW, host=PG_HOST,
-            port=PG_PORT, database=PG_DB, max_size=10,
-            max_inactive_connection_lifetime=15
-        )
-        logger.info("✅ เชื่อมต่อ PostgreSQL สำเร็จ")
+        if DATABASE_URL:
+            bot.pool = await asyncpg.create_pool(DATABASE_URL, max_size=10, max_inactive_connection_lifetime=15)
+        else:
+            bot.pool = await asyncpg.create_pool(
+                user=PG_USER,
+                password=PG_PW,
+                host=PG_HOST,
+                port=PG_PORT,
+                database=PG_DB,
+                max_size=10,
+                max_inactive_connection_lifetime=15
+            )
+        logger.info("✅ เชื่อมต่อ PostgreSQL สำเร็จ!")
     except Exception as e:
         logger.error(f"❌ เกิดข้อผิดพลาดในการเชื่อมต่อ PostgreSQL: {e}")
         bot.pool = None
@@ -117,10 +135,6 @@ async def on_ready():
     global redis_instance
     try:
         logger.info("🚀 บอทกำลังเริ่มต้น on_ready()...")
-        logger.info(f"🔍 PGHOST: {os.getenv('PGHOST')}")
-        logger.info(f"🔍 PGUSER: {os.getenv('PGUSER')}")
-        logger.info(f"🔍 PGDATABASE: {os.getenv('PGDATABASE')}")
-        logger.info(f"🔍 PGPASSWORD: {'✅ มีค่า' if os.getenv('PGPASSWORD') else '❌ ไม่มีค่า'}")
         await setup_postgres()
         await setup_redis()
         if bot.pool is None:
