@@ -134,8 +134,8 @@ async def get_openai_response(messages, max_retries=3, delay=5):
             response = openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=messages,
-                max_tokens=2000,
-                temperature=1
+                max_tokens=1000,
+                temperature=0.8
             )
             return response
         except httpx.HTTPStatusError as e:
@@ -208,9 +208,9 @@ def summarize_with_gpt(text):
 def detect_tone(text):
     casual_words = ["555", "ฮา", "โคตร", "เว้ย", "เห้ย"]
     formal_words = ["เรียน", "กรุณา", "ขอสอบถาม"]
-    if any(word in text for casual_words):
+    if any(word in text for word in casual_words):
         return "casual"
-    elif any(word in text for formal_words):
+    elif any(word in text for word in formal_words):
         return "formal"
     return "neutral"
 
