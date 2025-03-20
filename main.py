@@ -51,15 +51,15 @@ async def setup_redis():
     global redis_instance
     try:
         redis_instance = redis.from_url(REDIS_URL, decode_responses=True)
-        logger.info("เชื่อมต่อ Redis สำเร็จ")
+        logger.info("✅ เชื่อมต่อ Redis สำเร็จ")
     except Exception as e:
-        logger.error(f"เกิดข้อผิดพลาดในการเชื่อมต่อ Redis: {e}")
+        logger.error(f"❌ เกิดข้อผิดพลาดในการเชื่อมต่อ Redis: {e}")
         redis_instance = None
 
 # เชื่อมต่อ PostgreSQL
 async def setup_postgres():
     if not all([PG_USER, PG_PW, PG_HOST, PG_PORT, PG_DB]):
-        logger.error("PostgreSQL environment variables ไม่ครบถ้วน")
+        logger.error("❌ PostgreSQL environment variables ไม่ครบถ้วน")
         return
     try:
         bot.pool = await asyncpg.create_pool(
@@ -67,9 +67,9 @@ async def setup_postgres():
             port=PG_PORT, database=PG_DB, max_size=10,
             max_inactive_connection_lifetime=15
         )
-        logger.info("เชื่อมต่อ PostgreSQL สำเร็จ")
+        logger.info("✅ เชื่อมต่อ PostgreSQL สำเร็จ")
     except Exception as e:
-        logger.error(f"เกิดข้อผิดพลาดในการเชื่อมต่อ PostgreSQL: {e}")
+        logger.error(f"❌ เกิดข้อผิดพลาดในการเชื่อมต่อ PostgreSQL: {e}")
         bot.pool = None
 
 async def check_openai_quota_and_handle_errors():
@@ -115,11 +115,16 @@ async def create_table():
 @bot.event
 async def on_ready():
     try:
+        logger.info("🚀 บอทกำลังเริ่มต้น on_ready()...")
         await setup_postgres()
         await setup_redis()
-        logger.info(f'{bot.user} เชื่อมต่อสำเร็จ')
+        if bot.pool is None:
+            logger.error("❌ PostgreSQL connection pool ยังไม่ได้ถูกกำหนดค่า")
+        if redis_instance is None:
+            logger.error("❌ Redis instance ยังไม่ได้ถูกกำหนดค่า")
+        logger.info(f"✅ {bot.user} เชื่อมต่อสำเร็จ!")
     except Exception as e:
-        logger.error(f'เกิดข้อผิดพลาดใน on_ready: {e}')
+        logger.error(f"❌ เกิดข้อผิดพลาดใน on_ready: {e}")
         bot.pool = None
         global redis_instance
         redis_instance = None
@@ -150,7 +155,8 @@ async def get_openai_response(messages, max_retries=3, delay=5):
     return None
 
 async def get_guild_x(guild, x):
-    if bot.pool is None or not hasattr(bot, 'pool'):
+    if not hasattr(bot, "pool") or bot.pool is None:
+        logger.warning("⚠️ Database ยังไม่พร้อมใช้งาน")
         return None
     try:
         async with bot.pool.acquire() as con:
@@ -160,7 +166,8 @@ async def get_guild_x(guild, x):
         return None
 
 async def chatcontext_append(guild, message):
-    if bot.pool is None or not hasattr(bot, 'pool'):
+    if not hasattr(bot, "pool") or bot.pool is None:
+        logger.warning("⚠️ Database ยังไม่พร้อมใช้งาน")
         return
     try:
         async with bot.pool.acquire() as con:
