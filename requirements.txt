@@ -6,3 +6,4 @@ httpx
 requests
 python-dotenv
 logging
+setuptools
