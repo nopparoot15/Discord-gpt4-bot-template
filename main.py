@@ -185,6 +185,7 @@ async def get_guild_x(guild, x):
         return None
     try:
         async with bot.pool.acquire() as con:
+            # ตรวจสอบให้แน่ใจว่าใช้ ARRAY[]::TEXT[] สำหรับการดึงข้อมูล
             return await con.fetchval(f"SELECT COALESCE({x}, ARRAY[]::TEXT[]) FROM context WHERE id = $1", guild)
     except Exception as e:
         logger.error(f'get_guild_x: {e}')
