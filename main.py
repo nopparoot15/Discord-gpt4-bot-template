@@ -4,7 +4,7 @@ import logging
 import asyncpg
 import asyncio
 import discord
-import aioredis
+import redis.asyncio as redis
 from discord.ext import commands
 import openai
 import time
@@ -45,16 +45,16 @@ bot = commands.Bot(command_prefix='$', intents=intents)
 openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 # เชื่อมต่อ Redis
-redis = None
+redis_instance = None
 
 async def setup_redis():
-    global redis
+    global redis_instance
     try:
-        redis = await aioredis.from_url(REDIS_URL, decode_responses=True)
+        redis_instance = redis.from_url(REDIS_URL, decode_responses=True)
         logger.info("เชื่อมต่อ Redis สำเร็จ")
     except Exception as e:
         logger.error(f"เกิดข้อผิดพลาดในการเชื่อมต่อ Redis: {e}")
-        redis = None
+        redis_instance = None
 
 # เชื่อมต่อ PostgreSQL
 async def setup_postgres():
@@ -121,8 +121,8 @@ async def on_ready():
     except Exception as e:
         logger.error(f'เกิดข้อผิดพลาดใน on_ready: {e}')
         bot.pool = None
-        global redis
-        redis = None
+        global redis_instance
+        redis_instance = None
 
 async def get_openai_response(messages, max_retries=3, delay=5):
     """ ดึงข้อมูลจาก OpenAI API พร้อม retry หากเจอข้อผิดพลาด 429 """
@@ -208,18 +208,18 @@ def summarize_with_gpt(text):
 def detect_tone(text):
     casual_words = ["555", "ฮา", "โคตร", "เว้ย", "เห้ย"]
     formal_words = ["เรียน", "กรุณา", "ขอสอบถาม"]
-    if any(word in text for word in casual_words):
+    if any(word in text for casual_words):
         return "casual"
-    elif any(word in text for word in formal_words):
+    elif any(word in text for formal_words):
         return "formal"
     return "neutral"
 
 # จัดเก็บบริบทของผู้ใช้
 async def store_chat(user_id, message):
-    await redis.set(f"chat:{user_id}", json.dumps(message), expire=86400)
+    await redis_instance.set(f"chat:{user_id}", json.dumps(message), ex=86400)
 
 async def get_chat_history(user_id):
-    data = await redis.get(f"chat:{user_id}")
+    data = await redis_instance.get(f"chat:{user_id}")
     return json.loads(data) if data else []
 
 # ให้บอทเรียนรู้คำถามที่พบบ่อย
