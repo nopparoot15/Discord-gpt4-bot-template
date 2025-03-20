@@ -43,7 +43,7 @@ openai.api_key = OPENAI_API_KEY
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix='%', intents=intents)
+bot = commands.Bot(command_prefix='$', intents=intents)
 
 # ใช้ OpenAI client เวอร์ชันใหม่
 openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
@@ -368,12 +368,12 @@ async def on_message(message: discord.Message):
 async def ping(ctx):
     await ctx.send(f"Pong! 🏓 Latency: {round(bot.latency * 1000)}ms")
 
-@bot.command(name="info")
+@bot.command(name="help_command")
 async def help_command(ctx):
     help_text = """📌 **คำสั่งที่ใช้งานได้**
-    🔹 `%ping` - ตรวจสอบว่าบอทยังทำงานอยู่
-    🔹 `%ค้นหา <คำค้นหา>` - ค้นหาข้อมูลจาก Google
-    🔹 `%ถาม <คำถาม>` - ถาม AI พี่หลาม"""
+    🔹 `$ping` - ตรวจสอบว่าบอทยังทำงานอยู่
+    🔹 `$ค้นหา <คำค้นหา>` - ค้นหาข้อมูลจาก Google
+    🔹 `$ถาม <คำถาม>` - ถาม AI พี่หลาม"""
     await ctx.send(help_text)
 
 @bot.command(name="ถาม")
