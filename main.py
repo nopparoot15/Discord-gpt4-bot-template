@@ -114,6 +114,7 @@ async def create_table():
 
 @bot.event
 async def on_ready():
+    global redis_instance
     try:
         logger.info("🚀 บอทกำลังเริ่มต้น on_ready()...")
         await setup_postgres()
@@ -126,7 +127,6 @@ async def on_ready():
     except Exception as e:
         logger.error(f"❌ เกิดข้อผิดพลาดใน on_ready: {e}")
         bot.pool = None
-        global redis_instance
         redis_instance = None
 
 async def get_openai_response(messages, max_retries=3, delay=5):
