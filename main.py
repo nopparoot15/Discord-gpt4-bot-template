@@ -240,7 +240,7 @@ async def on_ready():
     try:
         logging.info(f"🚀 บอท {bot.user} พร้อมใช้งาน!")
         await bot.tree.sync()
-        logging.info("✅ ซิงค์ Slash Commands สำเร็จ!")
+        logger.info("✅ ซิงค์ Slash Commands สำเร็จ!")
 
         logger.info("🚀 บอทกำลังเริ่มต้น on_ready()...")
         await setup_postgres()
