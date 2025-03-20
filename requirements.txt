@@ -1,6 +1,8 @@
-asyncpg
 discord.py
 openai
+asyncpg
+aioredis
 httpx
 requests
-aioredis
+python-dotenv
+logging
