@@ -195,7 +195,6 @@ async def get_guild_x(guild, x):
         return None
 
 
-
 async def chatcontext_append(guild, message):
     if not hasattr(bot, "pool") or bot.pool is None:
         logger.warning("⚠️ Database ยังไม่พร้อมใช้งาน")
