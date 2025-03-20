@@ -201,19 +201,17 @@ async def chatcontext_append(guild, message):
         return
     try:
         async with bot.pool.acquire() as con:
-            # เพิ่มข้อความใหม่เข้าไปในอาเรย์ chatcontext ของ guild ที่กำหนด
             await con.execute("""
                 INSERT INTO context (id, chatcontext)
-                VALUES ($1, ARRAY[$2]::TEXT[])  -- ถ้ายังไม่มีข้อมูล ให้สร้างอาเรย์ใหม่ที่มี 1 ข้อความ
-                ON CONFLICT (id) DO UPDATE
+                VALUES ($1, ARRAY[$2]::TEXT[])
+                ON CONFLICT (id) DO UPDATE 
                 SET chatcontext = array_append(
-                    COALESCE(chatcontext, ARRAY[]::TEXT[]),  -- ถ้าเป็น NULL ให้ใช้อาเรย์ว่าง
-                    $2  -- เพิ่มข้อความใหม่เข้าไปเป็นข้อความเดียว
+                    COALESCE(context.chatcontext, ARRAY[]::TEXT[]),  -- แก้ไขให้ชัดเจนว่ามาจากตาราง context
+                    $2
                 )
             """, guild, message)
     except Exception as e:
         logger.error(f'chatcontext_append: {e}')
-
 
 # ฟังก์ชันค้นหาข้อมูลจาก Google Search
 def search_google(query):
