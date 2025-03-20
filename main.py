@@ -220,6 +220,18 @@ async def shutdown(interaction: discord.Interaction):
     await interaction.response.send_message("🛑 บอทกำลังปิดตัว...")
     await bot.close()
 
+# Slash Command: Google Search
+@bot.tree.command(name="ค้นหา", description="ค้นหาข้อมูลจาก Google")
+async def search(interaction: discord.Interaction, query: str):
+    search_results = search_google(query)
+    if search_results == "ไม่พบข้อมูลจาก Google":
+        await interaction.response.send_message("❌ ไม่พบข้อมูลที่ต้องการ")
+    else:
+        await interaction.response.send_message(f"🔍 **ผลการค้นหาจาก Google:**\n{search_results}")
+
+        summary = summarize_with_gpt(search_results)
+        await interaction.followup.send(f"📝 **สรุปข้อมูลโดย AI:**\n{summary}")
+
 async def create_table():
     """ สร้างตาราง context ถ้ายังไม่มี """
     try:
