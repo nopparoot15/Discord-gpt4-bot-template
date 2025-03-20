@@ -236,7 +236,7 @@ async def get_chat_history(user_id):
 # ให้บอทเรียนรู้คำถามที่พบบ่อย
 async def get_faq_response(new_question, previous_questions):
     for question in previous_questions:
-        if new_question.lower() in question['question'].lower()):
+        if new_question.lower() in question['question'].lower():
             return question['response']
     return None
 
