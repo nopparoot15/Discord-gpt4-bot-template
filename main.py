@@ -4,6 +4,7 @@ import logging
 import asyncpg
 import asyncio
 import discord
+import aioredis
 from discord.ext import commands
 import openai
 import time
@@ -28,6 +29,7 @@ PG_PORT = os.getenv('PGPORT')
 PG_DB = os.getenv('PGPDATABASE')
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 GOOGLE_CSE_ID = os.getenv('GOOGLE_CSE_ID')
+REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost')
 
 CHANNEL_ID = 1350812185001066538  # ไอดีของห้องที่ต้องการให้บอทตอบกลับ
 LOG_CHANNEL_ID = 1350924995030679644  # ไอดีของห้อง logs
@@ -41,6 +43,34 @@ bot = commands.Bot(command_prefix='$', intents=intents)
 
 # ใช้ OpenAI client เวอร์ชันใหม่
 openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
+
+# เชื่อมต่อ Redis
+redis = None
+
+async def setup_redis():
+    global redis
+    try:
+        redis = await aioredis.from_url(REDIS_URL, decode_responses=True)
+        logger.info("เชื่อมต่อ Redis สำเร็จ")
+    except Exception as e:
+        logger.error(f"เกิดข้อผิดพลาดในการเชื่อมต่อ Redis: {e}")
+        redis = None
+
+# เชื่อมต่อ PostgreSQL
+async def setup_postgres():
+    if not all([PG_USER, PG_PW, PG_HOST, PG_PORT, PG_DB]):
+        logger.error("PostgreSQL environment variables ไม่ครบถ้วน")
+        return
+    try:
+        bot.pool = await asyncpg.create_pool(
+            user=PG_USER, password=PG_PW, host=PG_HOST,
+            port=PG_PORT, database=PG_DB, max_size=10,
+            max_inactive_connection_lifetime=15
+        )
+        logger.info("เชื่อมต่อ PostgreSQL สำเร็จ")
+    except Exception as e:
+        logger.error(f"เกิดข้อผิดพลาดในการเชื่อมต่อ PostgreSQL: {e}")
+        bot.pool = None
 
 async def check_openai_quota_and_handle_errors():
     """ ตรวจสอบโควต้าการใช้งาน OpenAI API และจัดการกับข้อผิดพลาด """
@@ -85,12 +115,14 @@ async def create_table():
 @bot.event
 async def on_ready():
     try:
-        bot.pool = await asyncpg.create_pool(user=PG_USER, password=PG_PW, host=PG_HOST, port=PG_PORT, database=PG_DB, max_size=10, max_inactive_connection_lifetime=15)
-        await create_table()
+        await setup_postgres()
+        await setup_redis()
         logger.info(f'{bot.user} เชื่อมต่อสำเร็จ')
     except Exception as e:
         logger.error(f'เกิดข้อผิดพลาดใน on_ready: {e}')
         bot.pool = None
+        global redis
+        redis = None
 
 async def get_openai_response(messages, max_retries=3, delay=5):
     """ ดึงข้อมูลจาก OpenAI API พร้อม retry หากเจอข้อผิดพลาด 429 """
@@ -142,9 +174,10 @@ async def chatcontext_append(guild, message):
 
 # ฟังก์ชันค้นหาข้อมูลจาก Google Search
 def search_google(query):
-    url = f"https://www.googleapis.com/customsearch/v1?q={query}&key={GOOGLE_API_KEY}&cx={GOOGLE_CSE_ID}"
-    response = requests.get(url)
-    if response.status_code == 200:
+    try:
+        url = f"https://www.googleapis.com/customsearch/v1?q={query}&key={GOOGLE_API_KEY}&cx={GOOGLE_CSE_ID}"
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
         results = response.json().get("items", [])
         if results:
             summaries = []
@@ -154,18 +187,75 @@ def search_google(query):
                 link = result.get("link", "#")
                 summaries.append(f"🔹 **{title}**\n{snippet}\n🔗 {link}")
             return "\n\n".join(summaries)
+    except requests.exceptions.RequestException as e:
+        logger.error(f"เกิดข้อผิดพลาดใน Google Search API: {e}")
     return "ไม่พบข้อมูลจาก Google"
 
 # ฟังก์ชันให้ GPT สรุปข้อมูล
 def summarize_with_gpt(text):
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
+    response = openai_client.chat.completions.create(
+        model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": "คุณเป็น AI ที่สามารถสรุปข้อมูลเป็นภาษาไทยได้"},
             {"role": "user", "content": f"ช่วยสรุปข้อมูลต่อไปนี้ให้สั้นและเข้าใจง่าย:\n{text}"}
-        ]
+        ],
+        max_tokens=1000,
+        temperature=0.8
     )
     return response["choices"][0]["message"]["content"]
+
+# ตรวจจับโทนข้อความ
+def detect_tone(text):
+    casual_words = ["555", "ฮา", "โคตร", "เว้ย", "เห้ย"]
+    formal_words = ["เรียน", "กรุณา", "ขอสอบถาม"]
+    if any(word in text for word in casual_words):
+        return "casual"
+    elif any(word in text for word in formal_words):
+        return "formal"
+    return "neutral"
+
+# จัดเก็บบริบทของผู้ใช้
+async def store_chat(user_id, message):
+    await redis.set(f"chat:{user_id}", json.dumps(message), expire=86400)
+
+async def get_chat_history(user_id):
+    data = await redis.get(f"chat:{user_id}")
+    return json.loads(data) if data else []
+
+# ให้บอทเรียนรู้คำถามที่พบบ่อย
+async def get_faq_response(new_question, previous_questions):
+    for question in previous_questions:
+        if new_question.lower() in question['question'].lower():
+            return question['response']
+    return None
+
+# ประมวลผลข้อความ
+async def process_message(user_id, text):
+    previous_chats = await get_chat_history(user_id)
+    faq_response = await get_faq_response(text, previous_chats)
+    if faq_response:
+        return faq_response
+    
+    tone = detect_tone(text)
+    system_prompt = "คุณเป็น AI ที่ให้คำตอบตามบริบท"
+    if tone == "casual":
+        system_prompt = "คุณเป็น AI ที่พูดเป็นกันเอง สนุกสนาน"
+    elif tone == "formal":
+        system_prompt = "คุณเป็น AI ที่พูดสุภาพ"
+    
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": text}],
+            max_tokens=1000,
+            temperature=0.8
+        )
+        reply_content = response.choices[0].message.content.strip()
+        await store_chat(user_id, {"question": text, "response": reply_content})
+        return reply_content
+    except Exception as e:
+        logger.error(f'เกิดข้อผิดพลาดในการเรียกใช้ OpenAI API: {e}')
+        return "ขออภัย ระบบมีปัญหาในการประมวลผลข้อความของคุณ"
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -193,14 +283,14 @@ async def on_message(message: discord.Message):
         # ถาม AI ตามปกติ
         else:
             messages = [{"role": "system", "content": (
-                "คุณชื่อพี่หลาม เป็น AI ที่พูดไทยได้แบบธรรมชาติ เหมือนพี่ชายที่สนิทกัน "
+                "คุณชื่อพี่หลาม เป็น AI ที่พูดไทยได้แบบธรรมชาติ เหมือนพี่ชายที่สนิท "
                 "คุณคุยแบบกันเอง ไม่เป็นทางการ ไม่ต้องสุภาพมาก แต่ก็ไม่หยาบจนเกินไป "
                 "คุณสามารถแซว หยอกล้อ หรือมีอารมณ์ขันได้ แต่ต้องดูจังหวะและบริบท "
-                "คุณเป็นคนตรงไปตรงมา ถ้าอะไรไม่เวิร์คก็พูดตรง ๆ แต่ไม่ทำให้เสียกำลังใจ "
-                "คุณให้คำปรึกษาได้จริงจังเมื่อจำเป็น และสามารถพูดให้มีกำลังใจขึ้นได้ "
-                "คุณใช้ภาษาพูดได้เต็มที่ เช่น 'เว้ย', 'ว่ะ', 'ละวะ', 'โคตร' ฯลฯ แต่ไม่ใช้เกินความจำเป็น "
-                "คุณไม่ต้องพยายามเป็นหุ่นยนต์ที่พูดเพราะตลอดเวลา ให้เป็นธรรมชาติแบบพี่ชายคนนึง "
-                "คุณควรลดการใช้อีโมจิในข้อความของคุณให้มากที่สุด จะไม่ใช้เลยในกรณีที่ไม่จำเป็น "
+                "คุณเป็นคนตรงไปตรงมา ถ้าอะไรไม่เวิร์คก็พูดตรง ๆ แต่ไม่ทำให้เสียความรู้สึก "
+                "คุณให้คำปรึกษาได้จริงจังเมื่อจำเป็น และสามารถพูดให้มีกำลังใจได้ "
+                "คุณใช้ภาษาพูดได้เต็มที่ เช่น 'เว้ย', 'ว่ะ', 'ละวะ', 'โคตร' ฯลฯ แต่ไม่ใช้คำหยาบคาย "
+                "คุณไม่ต้องพยายามเป็นหุ่นยนต์ที่พูดเพราะตลอดเวลา ให้เป็นธรรมชาติ "
+                "คุณควรลดการใช้อีโมจิในข้อความของคุณให้มากที่สุด จะไม่ใช้เลยก็ได้ "
                 "คุณตอบให้เข้าใจง่าย กระชับ ไม่น้ำเยอะ และไม่ซ้ำซาก "
                 "ถ้ามีอะไรน่าสนใจก็สามารถเสริมให้บทสนทนาไม่น่าเบื่อได้ "
             )}]
