@@ -117,6 +117,10 @@ async def on_ready():
     global redis_instance
     try:
         logger.info("🚀 บอทกำลังเริ่มต้น on_ready()...")
+        logger.info(f"🔍 PGHOST: {os.getenv('PGHOST')}")
+        logger.info(f"🔍 PGUSER: {os.getenv('PGUSER')}")
+        logger.info(f"🔍 PGDATABASE: {os.getenv('PGDATABASE')}")
+        logger.info(f"🔍 PGPASSWORD: {'✅ มีค่า' if os.getenv('PGPASSWORD') else '❌ ไม่มีค่า'}")
         await setup_postgres()
         await setup_redis()
         if bot.pool is None:
@@ -232,7 +236,7 @@ async def get_chat_history(user_id):
 # ให้บอทเรียนรู้คำถามที่พบบ่อย
 async def get_faq_response(new_question, previous_questions):
     for question in previous_questions:
-        if new_question.lower() in question['question'].lower():
+        if new_question.lower() in question['question'].lower()):
             return question['response']
     return None
 
