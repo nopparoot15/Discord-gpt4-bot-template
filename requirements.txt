@@ -3,3 +3,4 @@ discord.py
 openai
 httpx
 requests
+aioredis
