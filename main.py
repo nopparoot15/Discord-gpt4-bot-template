@@ -185,11 +185,17 @@ async def get_guild_x(guild, x):
         return None
     try:
         async with bot.pool.acquire() as con:
-            # ตรวจสอบให้แน่ใจว่าใช้ ARRAY[]::TEXT[] สำหรับการดึงข้อมูล
-            return await con.fetchval(f"SELECT COALESCE({x}, ARRAY[]::TEXT[]) FROM context WHERE id = $1", guild)
+            # ดึงค่า chatcontext และใช้ ARRAY[]::TEXT[] หากเป็น NULL
+            result = await con.fetchval(f"""
+                SELECT COALESCE({x}, ARRAY[]::TEXT[])
+                FROM context
+                WHERE id = $1
+            """, guild)
+            return result
     except Exception as e:
         logger.error(f'get_guild_x: {e}')
         return None
+
 
 async def chatcontext_append(guild, message):
     if not hasattr(bot, "pool") or bot.pool is None:
@@ -197,18 +203,19 @@ async def chatcontext_append(guild, message):
         return
     try:
         async with bot.pool.acquire() as con:
-            # แปลง message ที่เป็น TEXT ให้เป็น TEXT[] ก่อน
+            # แปลง message เป็น TEXT[] และเพิ่มลงใน chatcontext
             await con.execute("""
                 INSERT INTO context (id, chatcontext)
-                VALUES ($1, ARRAY[$2]::TEXT[])  -- แปลง message ที่เป็น TEXT เป็น TEXT[]
-                ON CONFLICT (id) DO UPDATE 
+                VALUES ($1, ARRAY[$2]::TEXT[])
+                ON CONFLICT (id) DO UPDATE
                 SET chatcontext = array_append(
-                    COALESCE(context.chatcontext, ARRAY[]::TEXT[]),  -- ทำให้ context.chatcontext เป็น TEXT[] หากเป็น NULL
-                    $2  -- เพิ่ม message ที่เป็น TEXT ลงใน TEXT[]
-                )
+                    COALESCE(context.chatcontext, ARRAY[]::TEXT[]),
+                    $2
+                );
             """, guild, message)
     except Exception as e:
         logger.error(f'chatcontext_append: {e}')
+
 
 # ฟังก์ชันค้นหาข้อมูลจาก Google Search
 def search_google(query):
