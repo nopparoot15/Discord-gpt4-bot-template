@@ -200,7 +200,7 @@ async def chatcontext_append(guild, message):
                 INSERT INTO context (id, chatcontext)
                 VALUES ($1, ARRAY[$2]::TEXT[])
                 ON CONFLICT (id) DO UPDATE SET chatcontext = array_append(COALESCE(context.chatcontext, ARRAY[]::TEXT[]), $2)
-            """, guild, message.replace("'", "''"))
+            """, guild, message)
     except Exception as e:
         logger.error(f'chatcontext_append: {e}')
 
