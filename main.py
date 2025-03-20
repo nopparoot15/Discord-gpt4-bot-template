@@ -368,7 +368,7 @@ async def on_message(message: discord.Message):
 async def ping(ctx):
     await ctx.send(f"Pong! 🏓 Latency: {round(bot.latency * 1000)}ms")
 
-@bot.command(name="help")
+@bot.command(name="info")
 async def help_command(ctx):
     help_text = """📌 **คำสั่งที่ใช้งานได้**
     🔹 `$ping` - ตรวจสอบว่าบอทยังทำงานอยู่
