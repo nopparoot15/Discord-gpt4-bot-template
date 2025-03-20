@@ -13,24 +13,22 @@ import random
 import requests
 from dotenv import load_dotenv
 
+# โหลด environment variables
 load_dotenv()
 
-# ตั้งค่า logging
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s %(levelname)s:%(message)s', handlers=[
-    logging.FileHandler("bot.log"),
-    logging.StreamHandler()
-])
+# ตั้งค่า Logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(message)s")
 logger = logging.getLogger('discord_bot')
 
-# ตั้งค่า API Key และ Token
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-TOKEN = os.getenv('DISCORD_TOKEN')
+# โหลด API Key และ Token
+TOKEN = os.getenv("DISCORD_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 DATABASE_URL = os.getenv("DATABASE_URL")
 PG_USER = os.getenv('PGUSER')
 PG_PW = os.getenv('PGPASSWORD')
 PG_HOST = os.getenv('PGHOST')
 PG_PORT = os.getenv('PGPORT', '5432')
-PG_DB = os.getenv('PGPDATABASE')
+PG_DB = os.getenv('PGDATABASE')
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
 GOOGLE_CSE_ID = os.getenv('GOOGLE_CSE_ID')
 REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost')
@@ -38,12 +36,13 @@ REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost')
 CHANNEL_ID = 1350812185001066538  # ไอดีของห้องที่ต้องการให้บอทตอบกลับ
 LOG_CHANNEL_ID = 1350924995030679644  # ไอดีของห้อง logs
 
-# ตั้งค่า OpenAI
-openai.api_key = OPENAI_API_KEY
-
+# ตั้งค่า Discord Bot
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix='$', intents=intents)
+bot = commands.Bot(command_prefix="$", intents=intents)
+
+# ตั้งค่า OpenAI
+openai.api_key = OPENAI_API_KEY
 
 # ใช้ OpenAI client เวอร์ชันใหม่
 openai_client = openai.OpenAI(api_key=OPENAI_API_KEY)
@@ -94,6 +93,20 @@ async def setup_postgres():
         logger.error(f"❌ เกิดข้อผิดพลาดในการเชื่อมต่อ PostgreSQL: {e}")
         bot.pool = None
 
+# ฟังก์ชันเรียก OpenAI
+async def get_openai_response(messages):
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            max_tokens=1000,
+            temperature=0.8
+        )
+        return response["choices"][0]["message"]["content"]
+    except Exception as e:
+        logger.error(f"OpenAI API Error: {e}")
+        return "ขออภัย ระบบมีปัญหา"
+
 async def check_openai_quota_and_handle_errors():
     """ ตรวจสอบโควต้าการใช้งาน OpenAI API และจัดการกับข้อผิดพลาด """
     try:
@@ -110,46 +123,6 @@ async def check_openai_quota_and_handle_errors():
         else:
             logger.error(f"เกิดข้อผิดพลาดในการเชื่อมต่อ OpenAI API: {e}")
         return False
-
-async def send_message_to_channel(channel_id, message):
-    """ ส่งข้อความไปที่ห้อง Discord """
-    try:
-        channel = bot.get_channel(channel_id)
-        if channel:
-            await channel.send(message)
-    except Exception as e:
-        logger.error(f'เกิดข้อผิดพลาดในการส่งข้อความไปยังช่อง: {e}')
-
-async def create_table():
-    """ สร้างตาราง context ถ้ายังไม่มี """
-    try:
-        async with bot.pool.acquire() as con:
-            await con.execute("""
-                CREATE TABLE IF NOT EXISTS context (
-                    id BIGINT PRIMARY KEY,
-                    chatcontext TEXT[] DEFAULT ARRAY[]::TEXT[]
-                )
-            """)
-            logger.info("ตรวจสอบและสร้างตาราง context แล้ว")
-    except Exception as e:
-        logger.error(f'เกิดข้อผิดพลาดในการสร้างตาราง: {e}')
-
-@bot.event
-async def on_ready():
-    global redis_instance
-    try:
-        logger.info("🚀 บอทกำลังเริ่มต้น on_ready()...")
-        await setup_postgres()
-        await setup_redis()
-        if bot.pool is None:
-            logger.error("❌ PostgreSQL connection pool ยังไม่ได้ถูกกำหนดค่า")
-        if redis_instance is None:
-            logger.error("❌ Redis instance ยังไม่ได้ถูกกำหนดค่า")
-        logger.info(f"✅ {bot.user} เชื่อมต่อสำเร็จ!")
-    except Exception as e:
-        logger.error(f"❌ เกิดข้อผิดพลาดใน on_ready: {e}")
-        bot.pool = None
-        redis_instance = None
 
 async def get_openai_response(messages, max_retries=3, delay=5):
     """ ดึงข้อมูลจาก OpenAI API พร้อม retry หากเจอข้อผิดพลาด 429 """
@@ -179,41 +152,7 @@ async def get_openai_response(messages, max_retries=3, delay=5):
     logger.error("เกินจำนวน retry ที่กำหนดสำหรับ OpenAI API")
     return None
 
-async def get_guild_x(guild, x):
-    if not hasattr(bot, "pool") or bot.pool is None:
-        logger.warning("⚠️ Database ยังไม่พร้อมใช้งาน")
-        return None
-    try:
-        async with bot.pool.acquire() as con:
-            # ใช้ COALESCE กับ TEXT[] เพื่อดึงข้อมูล chatcontext ที่เป็น TEXT[] หรือให้ค่าเริ่มต้นเป็น TEXT[] หากเป็น NULL
-            return await con.fetchval(f"""
-                SELECT COALESCE({x}, ARRAY[]::TEXT[]) 
-                FROM context WHERE id = $1
-            """, guild)
-    except Exception as e:
-        logger.error(f'get_guild_x: {e}')
-        return None
-
-
-async def chatcontext_append(guild, message):
-    if not hasattr(bot, "pool") or bot.pool is None:
-        logger.warning("⚠️ Database ยังไม่พร้อมใช้งาน")
-        return
-    try:
-        async with bot.pool.acquire() as con:
-            await con.execute("""
-                INSERT INTO context (id, chatcontext)
-                VALUES ($1, ARRAY[$2]::TEXT[])
-                ON CONFLICT (id) DO UPDATE 
-                SET chatcontext = array_append(
-                    COALESCE(context.chatcontext, ARRAY[]::TEXT[]),  -- แก้ไขให้ชัดเจนว่ามาจากตาราง context
-                    $2
-                )
-            """, guild, message)
-    except Exception as e:
-        logger.error(f'chatcontext_append: {e}')
-
-# ฟังก์ชันค้นหาข้อมูลจาก Google Search
+# ค้นหาข้อมูลจาก Google
 def search_google(query):
     try:
         url = f"https://www.googleapis.com/customsearch/v1?q={query}&key={GOOGLE_API_KEY}&cx={GOOGLE_CSE_ID}"
@@ -232,45 +171,16 @@ def search_google(query):
         logger.error(f"เกิดข้อผิดพลาดใน Google Search API: {e}")
     return "ไม่พบข้อมูลจาก Google"
 
-# ฟังก์ชันให้ GPT สรุปข้อมูล
-def summarize_with_gpt(text):
-    response = openai_client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": "คุณเป็น AI ที่สามารถสรุปข้อมูลเป็นภาษาไทยได้"},
-            {"role": "user", "content": f"ช่วยสรุปข้อมูลต่อไปนี้ให้สั้นและเข้าใจง่าย:\n{text}"}
-        ],
-        max_tokens=1000,
-        temperature=0.8
-    )
-    return response["choices"][0]["message"]["content"]
-
-# ตรวจจับโทนข้อความ
-def detect_tone(text):
-    casual_words = ["555", "ฮา", "โคตร", "เว้ย", "เห้ย"]
-    formal_words = ["เรียน", "กรุณา", "ขอสอบถาม"]
-    if any(word in text for word in casual_words):
-        return "casual"
-    elif any(word in text for word in formal_words):
-        return "formal"
-    return "neutral"
-
-# จัดเก็บบริบทของผู้ใช้
+# ฟังก์ชันจัดเก็บแชท
 async def store_chat(user_id, message):
     await redis_instance.set(f"chat:{user_id}", json.dumps(message), ex=86400)
 
+# ดึงประวัติแชทจาก Redis
 async def get_chat_history(user_id):
     data = await redis_instance.get(f"chat:{user_id}")
     return json.loads(data) if data else []
 
-# ให้บอทเรียนรู้คำถามที่พบบ่อย
-async def get_faq_response(new_question, previous_questions):
-    for question in previous_questions:
-        if new_question.lower() in question['question'].lower():
-            return question['response']
-    return None
-
-# ประมวลผลข้อความ
+# ฟังก์ชันจัดการข้อความ
 async def process_message(user_id, text):
     previous_chats = await get_chat_history(user_id)
     faq_response = await get_faq_response(text, previous_chats)
@@ -279,9 +189,9 @@ async def process_message(user_id, text):
     
     tone = detect_tone(text)
     system_prompt = "คุณเป็น AI ที่ให้คำตอบตามบริบท"
-    if tone == "casual":
+    if (tone == "casual"):
         system_prompt = "คุณเป็น AI ที่พูดเป็นกันเอง สนุกสนาน"
-    elif tone == "formal":
+    elif (tone == "formal"):
         system_prompt = "คุณเป็น AI ที่พูดสุภาพ"
     
     try:
@@ -298,6 +208,109 @@ async def process_message(user_id, text):
         logger.error(f'เกิดข้อผิดพลาดในการเรียกใช้ OpenAI API: {e}')
         return "ขออภัย ระบบมีปัญหาในการประมวลผลข้อความของคุณ"
 
+# Slash Command: Ping
+@bot.tree.command(name="ping", description="เช็คว่าบอทยังออนไลน์อยู่")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message(f"Pong! 🏓 Latency: {round(bot.latency * 1000)}ms")
+
+# Slash Command: Shutdown (เฉพาะเจ้าของ)
+@bot.tree.command(name="shutdown", description="ปิดบอท (เฉพาะเจ้าของ)")
+@commands.is_owner()
+async def shutdown(interaction: discord.Interaction):
+    await interaction.response.send_message("🛑 บอทกำลังปิดตัว...")
+    await bot.close()
+
+async def create_table():
+    """ สร้างตาราง context ถ้ายังไม่มี """
+    try:
+        async with bot.pool.acquire() as con:
+            await con.execute("""
+                CREATE TABLE IF NOT EXISTS context (
+                    id BIGINT PRIMARY KEY,
+                    chatcontext TEXT[] DEFAULT ARRAY[]::TEXT[]
+                )
+            """)
+            logger.info("ตรวจสอบและสร้างตาราง context แล้ว")
+    except Exception as e:
+        logger.error(f'เกิดข้อผิดพลาดในการสร้างตาราง: {e}')
+
+@bot.event
+async def on_ready():
+    global redis_instance
+    try:
+        logging.info(f"🚀 บอท {bot.user} พร้อมใช้งาน!")
+        await bot.tree.sync()
+        logging.info("✅ ซิงค์ Slash Commands สำเร็จ!")
+
+        logger.info("🚀 บอทกำลังเริ่มต้น on_ready()...")
+        await setup_postgres()
+        await setup_redis()
+        if bot.pool is None:
+            logger.error("❌ PostgreSQL connection pool ยังไม่ได้ถูกกำหนดค่า")
+        if redis_instance is None:
+            logger.error("❌ Redis instance ยังไม่ได้ถูกกำหนดค่า")
+        logger.info(f"✅ {bot.user} เชื่อมต่อสำเร็จ!")
+    except Exception as e:
+        logger.error(f"❌ เกิดข้อผิดพลาดใน on_ready: {e}")
+        bot.pool = None
+        redis_instance = None
+
+async def send_message_to_channel(channel_id, message):
+    """ ส่งข้อความไปที่ห้อง Discord """
+    try:
+        channel = bot.get_channel(channel_id)
+        if channel:
+            await channel.send(message)
+    except Exception as e:
+        logger.error(f'เกิดข้อผิดพลาดในการส่งข้อความไปยังช่อง: {e}')
+
+async def get_guild_x(guild, x):
+    if not hasattr(bot, "pool") or bot.pool is None:
+        logger.warning("⚠️ Database ยังไม่พร้อมใช้งาน")
+        return None
+    try:
+        async with bot.pool.acquire() as con:
+            return await con.fetchval(f"""
+                SELECT COALESCE({x}, ARRAY[]::TEXT[]) 
+                FROM context WHERE id = $1
+            """, guild)
+    except Exception as e:
+        logger.error(f'get_guild_x: {e}')
+        return None
+
+async def chatcontext_append(guild, message):
+    if not hasattr(bot, "pool") or bot.pool is None:
+        logger.warning("⚠️ Database ยังไม่พร้อมใช้งาน")
+        return
+    try:
+        async with bot.pool.acquire() as con:
+            await con.execute("""
+                INSERT INTO context (id, chatcontext)
+                VALUES ($1, ARRAY[$2]::TEXT[])
+                ON CONFLICT (id) DO UPDATE 
+                SET chatcontext = array_append(
+                    COALESCE(context.chatcontext, ARRAY[]::TEXT[]),  
+                    $2
+                )
+            """, guild, message)
+    except Exception as e:
+        logger.error(f'chatcontext_append: {e}')
+
+async def get_faq_response(new_question, previous_questions):
+    for question in previous_questions:
+        if new_question.lower() in question['question'].lower():
+            return question['response']
+    return None
+
+def detect_tone(text):
+    casual_words = ["555", "ฮา", "โคตร", "เว้ย", "เห้ย"]
+    formal_words = ["เรียน", "กรุณา", "ขอสอบถาม"]
+    if any(word in text for word in casual_words):
+        return "casual"
+    elif any(word in text for word in formal_words):
+        return "formal"
+    return "neutral"
+
 async def send_long_message(channel, content):
     for chunk in [content[i:i+2000] for i in range(0, len(content), 2000)]:
         await channel.send(chunk)
@@ -311,7 +324,6 @@ async def on_message(message: discord.Message):
         text = message.content.lower()
         chatcontext = await get_guild_x(message.guild.id, "chatcontext") or []
         
-        # คำสั่งค้นหาข้อมูลจาก Google
         if text.startswith("ค้นหา:"):
             query = text.replace("ค้นหา:", "").strip()
             search_results = search_google(query)
@@ -321,19 +333,17 @@ async def on_message(message: discord.Message):
             else:
                 await message.channel.send(f"🔍 **ผลการค้นหาจาก Google:**\n{search_results}")
 
-                # ให้ GPT-4 สรุปข้อมูล
                 summary = summarize_with_gpt(search_results)
                 await message.channel.send(f"📝 **สรุปข้อมูลโดย AI:**\n{summary}")
         
-        # ถาม AI ตามปกติ
         else:
             messages = [{"role": "system", "content": (
-                """คุณชื่อพี่หลาม เป็น AI ที่พูดไทยได้แบบธรรมชาติ เหมือนพี่ชายที่สนิท
+                """คุณชื่อพี่หลาม เป็น AI ที่พูดไทยได้แบบธรรมชาติ เหมือนพี่ชายที่คุยกับน้อง ๆ
                 คุณคุยแบบกันเอง ไม่เป็นทางการ ไม่ต้องสุภาพมาก แต่ก็ไม่หยาบจนเกินไป
                 คุณสามารถแซว หยอกล้อ หรือมีอารมณ์ขันได้ แต่ต้องดูจังหวะและบริบท
-                คุณเป็นคนตรงไปตรงมา ถ้าอะไรไม่เวิร์คก็พูดตรง ๆ แต่ไม่ทำให้เสียกำลังใจ
+                คุณเป็นคนตรงไปตรงมา ถ้าอะไรไม่เวิร์คก็พูดตรง ๆ แต่ไม่ทำให้เสียความรู้สึก
                 คุณให้คำปรึกษาได้จริงจังเมื่อจำเป็น และสามารถพูดให้มีกำลังใจ
-                คุณใช้ภาษาพูดได้เต็มที่ เช่น 'เว้ย', 'ว่ะ', 'ละวะ', 'โคตร' ฯลฯ แต่ไม่ใช่คำหยาบคาย
+                คุณใช้ภาษาพูดได้เต็มที่ เช่น 'เว้ย', 'ว่ะ', 'ละวะ', 'โคตร' ฯลฯ แต่ไม่ใช่คำหยาบ
                 คุณไม่ต้องพยายามเป็นหุ่นยนต์ที่พูดเพราะตลอดเวลา ให้เป็นธรรมชาติ
                 คุณควรลดการใช้อีโมจิในข้อความของคุณให้มากที่สุด จะไม่ใช้เลยก็ได้
                 คุณตอบให้เข้าใจง่าย กระชับ ไม่น้ำเยอะ และไม่ซ้ำซาก
@@ -370,25 +380,13 @@ async def on_message(message: discord.Message):
             "นี่บอทหรือบ๊องเนี่ย!"
         ]
 
-        # ส่งข้อความสุ่มไปที่ห้องดิสคอร์ด
         await message.channel.send(random.choice(error_messages))
 
-@bot.command(name="ping")
-async def ping(ctx):
-    await ctx.send(f"Pong! 🏓 Latency: {round(bot.latency * 1000)}ms")
+# เริ่มรันบอท
+async def main():
+    async with bot:
+        await setup_postgres()
+        await setup_redis()
+        await bot.start(TOKEN)
 
-@bot.command(name="help_command")
-async def help_command(ctx):
-    help_text = """📌 **คำสั่งที่ใช้งานได้**
-    🔹 `$ping` - ตรวจสอบว่าบอทยังทำงานอยู่
-    🔹 `$ค้นหา <คำค้นหา>` - ค้นหาข้อมูลจาก Google
-    🔹 `$ถาม <คำถาม>` - ถาม AI พี่หลาม"""
-    await ctx.send(help_text)
-
-@bot.command(name="ถาม")
-@commands.cooldown(1, 5, commands.BucketType.user)
-async def ask(ctx, *, question):
-    response = await process_message(ctx.author.id, question)
-    await ctx.send(response)
-
-bot.run(TOKEN)
+asyncio.run(main())
