@@ -1,7 +1,7 @@
 discord.py
 openai
 asyncpg
-aioredis
+redis
 httpx
 requests
 python-dotenv
