@@ -185,16 +185,15 @@ async def get_guild_x(guild, x):
         return None
     try:
         async with bot.pool.acquire() as con:
-            # ดึงค่า chatcontext และใช้ ARRAY[]::TEXT[] หากเป็น NULL
-            result = await con.fetchval(f"""
-                SELECT COALESCE({x}, ARRAY[]::TEXT[])
-                FROM context
-                WHERE id = $1
+            # ใช้ COALESCE กับ TEXT[] เพื่อดึงข้อมูล chatcontext ที่เป็น TEXT[] หรือให้ค่าเริ่มต้นเป็น TEXT[] หากเป็น NULL
+            return await con.fetchval(f"""
+                SELECT COALESCE({x}, ARRAY[]::TEXT[]) 
+                FROM context WHERE id = $1
             """, guild)
-            return result
     except Exception as e:
         logger.error(f'get_guild_x: {e}')
         return None
+
 
 
 async def chatcontext_append(guild, message):
@@ -203,15 +202,15 @@ async def chatcontext_append(guild, message):
         return
     try:
         async with bot.pool.acquire() as con:
-            # แปลง message เป็น TEXT[] และเพิ่มลงใน chatcontext
+            # แปลง message จาก TEXT เป็น TEXT[] ก่อนที่จะใช้กับ COALESCE
             await con.execute("""
                 INSERT INTO context (id, chatcontext)
-                VALUES ($1, ARRAY[$2]::TEXT[])
-                ON CONFLICT (id) DO UPDATE
+                VALUES ($1, ARRAY[$2]::TEXT[])  -- แปลง message เป็น TEXT[] ก่อน
+                ON CONFLICT (id) DO UPDATE 
                 SET chatcontext = array_append(
-                    COALESCE(context.chatcontext, ARRAY[]::TEXT[]),
-                    $2
-                );
+                    COALESCE(context.chatcontext, ARRAY[]::TEXT[]),  -- ใช้ ARRAY[]::TEXT[] เมื่อ context.chatcontext เป็น NULL
+                    $2  -- เพิ่มข้อความที่เป็น TEXT ลงใน TEXT[]
+                )
             """, guild, message)
     except Exception as e:
         logger.error(f'chatcontext_append: {e}')
