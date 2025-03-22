@@ -422,3 +422,27 @@ async def main():
         await bot.start(TOKEN)
 
 asyncio.run(main())
+
+def summarize_with_gpt(text):
+    messages = [
+        {"role": "system", "content": "สรุปข้อความภาษาไทยให้กระชับ และเข้าใจง่าย โดยใช้ภาษาพูดธรรมชาติ"},
+        {"role": "user", "content": f"สรุปเนื้อหานี้ให้หน่อย:\n{text}"}
+    ]
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            max_tokens=800,
+            temperature=0.7
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"สรุปด้วย GPT ล้มเหลว: {e}")
+        return "❌ ขอโทษด้วย พี่หลามสรุปไม่ได้ตอนนี้"
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        logger.error(f"🔥 Bot crash: {e}")
