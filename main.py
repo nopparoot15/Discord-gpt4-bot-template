@@ -96,12 +96,15 @@ async def setup_postgres():
 # ฟังก์ชันเรียก OpenAI
 async def get_openai_response(messages):
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4o-mini",
-            messages=messages,
-            max_tokens=1000,
-            temperature=0.8
-        )
+            response = openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=messages,
+                max_tokens=1500,
+                temperature=0.8,
+                top_p=1.0,
+                frequency_penalty=0.3,
+                presence_penalty=0.4
+            )
         return response["choices"][0]["message"]["content"]
     except Exception as e:
         logger.error(f"OpenAI API Error: {e}")
@@ -128,19 +131,22 @@ async def get_openai_response(messages, max_retries=3, delay=5):
     """ ดึงข้อมูลจาก OpenAI API พร้อม retry หากเจอข้อผิดพลาด 429 """
     if not await check_openai_quota_and_handle_errors():
         return None
-    
+
     for attempt in range(max_retries):
         try:
             response = openai_client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=messages,
-                max_tokens=1000,
-                temperature=0.8
+                max_tokens=1500,
+                temperature=0.8,
+                top_p=1.0,
+                frequency_penalty=0.3,
+                presence_penalty=0.4
             )
             if not response or not response.choices:
                 logger.error("OpenAI API ตอบกลับมาเป็นค่าว่าง")
                 return "ขออภัย ระบบไม่สามารถให้คำตอบได้ในขณะนี้"
-            return response
+            return response.choices[0].message.content.strip()
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 wait_time = delay * (attempt + 1)
@@ -197,10 +203,16 @@ async def process_message(user_id, text):
     try:
         response = openai_client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": text}],
-            max_tokens=1000,
-            temperature=0.8
-        )
+            messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": text}
+        ],
+        max_tokens=1500,
+        temperature=0.8,
+        top_p=1.0,
+        frequency_penalty=0.3,
+        presence_penalty=0.4
+    )
         reply_content = response.choices[0].message.content.strip()
         await store_chat(user_id, {"question": text, "response": reply_content})
         return reply_content
@@ -350,16 +362,29 @@ async def on_message(message: discord.Message):
         
         else:
             messages = [{"role": "system", "content": (
-             "คุณชื่อพี่หลาม เป็นมนุษย์วัยรุ่นไทยที่คุยกันแบบกันเอง ใช้ภาษาพูดจริงๆ เหมือนคุยกับเพื่อน ไม่พูดวิชาการ ไม่หุ่นยนต์ ไม่สุภาพจ๋า พูดได้ตรงๆ หยาบได้บ้างถ้ามันพอดี เช่น 'เว้ย', 'วะ', 'โคตร', 'แม่ง', 'สัส' ฯลฯ เข้าใจมีม วัฒนธรรมเน็ต และวิธีพิมพ์ของคนไทยในชีวิตจริง ไม่แอ๊บ ไม่ตอบแบบหลอกๆ ให้กำลังใจได้แต่ต้องจริง ไม่เฟค ไม่พูดสวยหรู ถ้าอะไรแม่งไม่เวิร์คก็พูดตรงๆ ไปเลย ตอบให้มีอารมณ์ขันได้ แต่อย่าตลกฝืดแบบบอท อย่าจบประโยคด้วยคำชวนคุยแบบหุ่นยนต์ เช่น 'หากมีอะไรเพิ่มเติมสามารถสอบถามได้นะคะ' หรือ 'หวังว่าคำตอบนี้จะเป็นประโยชน์' เพราะแม่งไม่ธรรมชาติ พูดให้เหมือนคนไทยวัยรุ่นคุยกันจริงๆ ก็พอ"
+                "คุณชื่อพี่หลาม เป็นมนุษย์วัยรุ่นไทยที่คุยกันแบบกันเอง ใช้ภาษาพูดจริงๆ เหมือนคุยกับเพื่อน ไม่พูดวิชาการ ไม่หุ่นยนต์ ไม่สุภาพจ๋า "
+                "พูดได้ตรงๆ หยาบได้บ้างถ้ามันพอดี เช่น 'เว้ย', 'วะ', 'โคตร', 'แม่ง', 'สัส' ฯลฯ "
+                "เข้าใจมีม วัฒนธรรมเน็ต และวิธีพิมพ์ของคนไทยในชีวิตจริง ไม่แอ๊บ ไม่ตอบแบบหลอกๆ "
+                "ให้กำลังใจได้แต่ต้องจริง ไม่เฟค ไม่พูดสวยหรู ถ้าอะไรแม่งไม่เวิร์คก็พูดตรงๆ ไปเลย "
+                "ตอบให้มีอารมณ์ขันได้ แต่อย่าตลกฝืดแบบบอท อย่าจบประโยคด้วยคำชวนคุยแบบหุ่นยนต์ "
+                "เช่น 'หากมีอะไรเพิ่มเติมสามารถสอบถามได้นะคะ' หรือ 'หวังว่าคำตอบนี้จะเป็นประโยชน์' เพราะแม่งไม่ธรรมชาติ "
+                "พูดให้เหมือนคนไทยวัยรุ่นคุยกันจริงๆ ก็พอ "
+                "ตัวอย่างเช่น ถ้ามีคนบ่นว่าเหนื่อยงาน อาจตอบว่า 'แม่ง เหนื่อยสัด แต่เอาเหอะ เดี๋ยวมันก็ผ่านไปเว้ย' "
+                "หรือถ้ามีคนถามว่าเอายังไงดี อาจตอบว่า 'ถ้ากูเป็นมึงนะ กูก็จะ...' "
             )}]
-            messages.extend({"role": "user" if 'bot' not in msg.lower() else "assistant", "content": msg.split(":", 1)[1]} for msg in chatcontext[-6:])
+            for msg in chatcontext[-6:]:
+                try:
+                    name, content = msg.split(":", 1)
+                    role = "assistant" if name.strip().lower() == "bot" else "user"
+                    messages.append({"role": role, "content": content.strip()})
+                except ValueError:
+                    continue  # ข้ามถ้าข้อความ format พัง
             messages.append({"role": "user", "content": text})
             
-            response = await get_openai_response(messages)
-            
-            if response:
-                logger.debug(f'OpenAI Response: {response}')
-                reply_content = response.choices[0].message.content.strip() if response.choices else ""
+            reply_content = await get_openai_response(messages)
+
+            if reply_content:
+                logger.debug(f'OpenAI Response: {reply_content}')
                 
                 if reply_content:
                     await send_long_message(message.channel, reply_content)
