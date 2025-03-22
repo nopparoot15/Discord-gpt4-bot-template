@@ -94,7 +94,6 @@ async def setup_postgres():
         bot.pool = None
 
 # ฟังก์ชันเรียก OpenAI
-# async def get_openai_response(messages):
 #     try:
             response = openai_client.chat.completions.create(
                 model="gpt-4o-mini",
