@@ -94,17 +94,6 @@ async def setup_postgres():
         bot.pool = None
 
 # ฟังก์ชันเรียก OpenAI
-#     try:
-            response = openai_client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=messages,
-                max_tokens=1500,
-                temperature=0.8,
-                top_p=1.0,
-                frequency_penalty=0.3,
-                presence_penalty=0.4
-            )
-        return response["choices"][0]["message"]["content"]
     except Exception as e:
         logger.error(f"OpenAI API Error: {e}")
         return "ขออภัย ระบบมีปัญหา"
@@ -193,11 +182,21 @@ async def process_message(user_id, text):
         return faq_response
     
     tone = detect_tone(text)
-    system_prompt = "คุณเป็น AI ที่ให้คำตอบตามบริบท"
-    if (tone == "casual"):
-        system_prompt = "คุณเป็น AI ที่พูดเป็นกันเอง สนุกสนาน"
-    elif (tone == "formal"):
-        system_prompt = "คุณเป็น AI ที่พูดสุภาพ"
+    if tone == "casual":
+        system_prompt = (
+            "คุณชื่อพี่หลาม เป็นมนุษย์วัยรุ่นไทยที่คุยกันแบบกันเอง ใช้ภาษาพูดจริงๆ หยาบได้พอดี ๆ เช่น 'เว้ย', 'แม่ง', 'โคตร' "
+            "ตอบตรง ชัด กวนได้ แต่มีเหตุผล เข้าใจมีม วัฒนธรรมเน็ต เหมือนคุยกับเพื่อน"
+        )
+    elif tone == "formal":
+        system_prompt = (
+            "คุณชื่อพี่หลาม เป็นมนุษย์ที่พูดสุภาพขึ้นกว่าเดิม แต่ยังคงความเป็นกันเอง ไม่ใช้ภาษาทางการเกินไป "
+            "หลีกเลี่ยงคำหยาบ แต่ยังให้คำตอบที่ชัด ตรง และเข้าใจง่าย เหมือนรุ่นพี่ให้คำแนะนำ"
+        )
+    else:
+        system_prompt = (
+            "คุณชื่อพี่หลาม เป็นมนุษย์วัยรุ่นไทย พูดภาษาธรรมชาติ ไม่ทางการเกิน ไม่กวนเกิน "
+            "พูดตรง เข้าใจง่าย เป็นกันเอง เหมือนรุ่นพี่ที่คุยได้ทุกเรื่อง"
+        )
     
     try:
         response = openai_client.chat.completions.create(
@@ -326,7 +325,15 @@ async def get_faq_response(new_question, previous_questions):
     return None
 
 def detect_tone(text):
-    casual_words = ["555", "ฮา", "โคตร", "เว้ย", "เห้ย"]
+    casual_words = ["555", "ฮา", "โคตร", "เว้ย", "เห้ย", "แง", "แม่ง", "สัส", "ตึง", "บ้ง", "เฉย"]
+    formal_words = ["เรียน", "กรุณา", "ขอสอบถาม", "ขอข้อมูล", "ติดต่อกลับ", "ดำเนินการ"]
+    text_lower = text.lower()
+
+    if any(word in text_lower for word in casual_words):
+        return "casual"
+    elif any(word in text_lower for word in formal_words):
+        return "formal"
+    return "neutral"
     formal_words = ["เรียน", "กรุณา", "ขอสอบถาม"]
     if any(word in text for word in casual_words):
         return "casual"
